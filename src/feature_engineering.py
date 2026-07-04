@@ -76,3 +76,29 @@ def engineer_features(df):
     df = encode_binary_columns(df)
     df = one_hot_encode_direction(df)
     return df
+
+
+def target_encode_column(X_train, X_test, y_train, column, smoothing=10):
+    """
+    Target (mean) encode a categorical column using ONLY training data,
+    with smoothing toward the global mean so categories with few samples
+    don't get an extreme, unreliable value.
+    """
+    global_mean = y_train.mean()
+    stats = y_train.groupby(X_train[column]).agg(['mean', 'count'])
+
+    smoothed_map = (stats['count'] * stats['mean'] + smoothing * global_mean) / (stats['count'] + smoothing)
+
+    X_train = X_train.copy()
+    X_test = X_test.copy()
+
+    X_train[column + '_encoded'] = X_train[column].map(smoothed_map)
+    # Unseen categories in test set fall back to the global mean
+    X_test[column + '_encoded'] = X_test[column].map(smoothed_map).fillna(global_mean)
+
+    X_train = X_train.drop(columns=[column])
+    X_test = X_test.drop(columns=[column])
+
+    return X_train, X_test, smoothed_map
+
+
