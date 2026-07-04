@@ -161,3 +161,41 @@ def log_results(entry, log_path="../results/experiment_log.csv"):
         df_entry.to_csv(log_path, mode='a', header=True, index=False)
 
     print(f"Logged: {entry['Model']} | RMSE={entry['RMSE']:.2f} | MAE={entry['MAE']:.2f} | R2={entry['R2']:.4f}")
+
+
+def repeated_split_check(df, model_template, feature_cols, drop_cols, n_repeats=30, test_size=0.15, smoothing=10):
+    """
+    Repeats train/test splitting n_repeats times with different random seeds.
+    Street encoding is refit on the training portion of EACH split (to avoid
+    leakage), then the given model architecture is retrained and evaluated
+    on that split's own test set. Returns the full distribution of results,
+    not just one number.
+    """
+    from sklearn.model_selection import train_test_split
+    from sklearn.base import clone
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    from src.feature_engineering import target_encode_column
+
+    X = df[feature_cols + ['الشارع']]
+    y = df['السعر']
+
+    results = []
+    for seed in range(n_repeats):
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=seed)
+
+        X_train_enc, X_test_enc, _ = target_encode_column(X_train, X_test, y_train, column='الشارع', smoothing=smoothing)
+        X_train_final = X_train_enc.drop(columns=drop_cols, errors='ignore')
+        X_test_final = X_test_enc.drop(columns=drop_cols, errors='ignore')
+
+        m = clone(model_template)
+        m.fit(X_train_final, y_train)
+        preds = m.predict(X_test_final)
+
+        results.append({
+            'seed': seed,
+            'RMSE': mean_squared_error(y_test, preds) ** 0.5,
+            'MAE': mean_absolute_error(y_test, preds),
+            'R2': r2_score(y_test, preds)
+        })
+
+    return pd.DataFrame(results)
